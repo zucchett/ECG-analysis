@@ -12,10 +12,10 @@ parser.add_argument("-q", "--qtfile", nargs='+', dest="qtnames", default=["1/1QT
 parser.add_argument("-v", "--verbose", action="store", type=int, default=0, dest="verbose", help="Specify verbosity level")
 args = parser.parse_args()
 
-data_sampling = 1000 # data acquisition sampling frequency (in Hz)
+data_sampling = 1024 # data acquisition sampling frequency (in Hz)
 plot_sampling = 100 # number of points per second to show (in Hz)
-plot_ti = 3130 # Starting time for the plot (in s)
-plot_tf = 3160 # End time for the plot (in s)
+plot_ti = 3060 # Starting time for the plot (in s)
+plot_tf = 3080 # End time for the plot (in s)
 plot_range = 20 # range of the plots (in seconds)
 tools_lits = "pan,wheel_zoom,box_zoom,reset,save,box_select,lasso_select"
 
@@ -30,9 +30,10 @@ qt = pd.DataFrame()
 
 # Read file(s)
 for filename in args.filenames:
-    tdf = pd.read_csv(filename, names=columns, low_memory=False, skiprows=0) #nrows=args.max*1024 + 1 if args.max > 0 else 1e9, \
-    if args.verbose >= 1: print("Read %d lines from txt file %s" % (len(tdf), filename))
-    df = df.append(tdf, ignore_index=True)
+	tdf = pd.read_csv(filename, names=columns, low_memory=False, skiprows=0) #nrows=args.max*1024 + 1 if args.max > 0 else 1e9,
+	if args.verbose >= 1: print("Read %d lines from txt file %s" % (len(tdf), filename))
+	df = df.append(tdf, ignore_index=True)
+	df.reset_index(inplace=True, drop=True) # Reset indices to avoid repeated times
 
 if args.verbose >= 0: print("Read file consisting of", len(df), "entries, corresponding to", datetime.timedelta(seconds=len(df)/1000.), "s")
 if args.verbose >= 1: print(df.head(10))
@@ -46,12 +47,15 @@ for qtname in args.qtnames:
 if args.verbose >= 0: print("Read QT file consisting of", len(qt), "entries")
 if args.verbose >= 1: print(qt.head(10))
 
+times = len(df)/1000. # times are in milliseconds
+
 # Derivations dataframe
 df['TYPE'] = 0
 df = df.astype({'TYPE' : "int32"})
 #print(df.dtypes)
 
-times = len(df)/1000. # times are in milliseconds
+# Overwrite time with correct value
+df['T'] = df.index / data_sampling
 
 # Calculate missing derivations:
 # III = II - I
@@ -65,18 +69,20 @@ df['aVF'] = (df['II'] + df['III']) / 2.
 
 df = df[['T', 'TYPE'] + derivations] # Reorder
 
+if args.verbose >= 1: print(df.head(10))
+
 # Annotations dataframe
 qt['TYPE'] = 1
 
-qt['T'] = qt['Time'] / 1000.
+qt['T'] = qt['Time'] / data_sampling
 qt = qt.astype({'TYPE' : "int32", 'Annotation': "int32"})
 qt = qt[['T', 'TYPE', 'Annotation']] # FIXME
+
+if args.verbose >= 1: print(qt[qt['Annotation'] != 0])
 
 # Merge dataframes
 md = pd.concat([df, qt])
 md = md.sort_values(by=['T']).reset_index(drop=True)
-
-#md = md[(md['T'] >= plot_ti) & (md['T'] < plot_tf)]
 
 if args.verbose >= 0: print("Saving output files")
 df.to_csv("UnpackedData.csv")
@@ -122,3 +128,5 @@ p = gridplot([[x] for x in figs], toolbar_location=None)
 save(p)
 
 if args.verbose >= 0: print("Output saved to", args.outputfile)
+
+# python3 plot.py -i 1/Hour*UnpackedData.csv -q 1/1QT*.csv -v 1
